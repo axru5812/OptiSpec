@@ -1,14 +1,16 @@
-# TEMPLATE PROJECT
+# OptiSpec
 
 ## Brief Description
-Write a brief description of the project here
+Code for doing fitting spectral fitting of optical spectra in a fast and reliable way.
 
 
 ## Setup
+env: Templateenvironment
 Describe name of env and setup to run the code
 
 ## Running tests
-run
+
+```
 >>> cd src
 >>> python -m pytest tests
-
+```
