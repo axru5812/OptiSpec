@@ -92,7 +92,7 @@ class Fitter():
         normalized_flux = self.spec.fl - continuum
         return normalized_flux, continuum
 
-    def _gen_linespec(self, pars, neblines):
+    def _gen_linespec(self, x, pars, neblines):
         """ Generates a linespectrum to be used when constructing the fitting
         residual with lmfit
         Parameters
