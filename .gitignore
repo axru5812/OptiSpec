@@ -1,0 +1,10 @@
+
+OptiSpec.egg-info/
+
+optispec/__pycache__/
+
+tests/__pycache__/
+
+.pytest_cache/v/cache/
+
+.vscode/
