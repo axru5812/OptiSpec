@@ -88,8 +88,8 @@ class Fitter():
         normalized_flux : ndarray
             Normalized flux array
         """
-        continuum = ndimage.median_filter(flux, size=kernel)
-        normalized_flux = flux - continuum
+        continuum = ndimage.median_filter(self.spec.fl, size=kernel)
+        normalized_flux = self.spec.fl - continuum
         return normalized_flux, continuum
 
     def _gen_linespec(self, pars, neblines):
