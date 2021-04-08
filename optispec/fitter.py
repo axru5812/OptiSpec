@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
-import .spectrum as sp
-from . import utils
+from scipy import ndimage
+import spectrum as sp
+import utils
 
 class Fitter():
     """
@@ -26,7 +27,7 @@ class Fitter():
         self.mc_iterations = mc_iterations
         self.fit_config = fit_config
 
-    def fit(self, x, y, errors):
+    def fit(self, spec):
         """
 
 
@@ -72,6 +73,24 @@ class Fitter():
         """
         """
         pass
+
+    def _normalize(self, kernel=101):
+        """
+        Function that normalizes the input spectrum using median filtering
+
+        Parameters
+        ----------
+        flux : ndarray
+            Array of same length as wavelength. Units should be erg/s/Å
+
+        Returns
+        -------
+        normalized_flux : ndarray
+            Normalized flux array
+        """
+        continuum = ndimage.median_filter(flux, size=kernel)
+        normalized_flux = flux - continuum
+        return normalized_flux, continuum
 
     def _gen_linespec(self, pars, neblines):
         """ Generates a linespectrum to be used when constructing the fitting
