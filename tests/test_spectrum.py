@@ -115,5 +115,5 @@ def test_normalize():
 
     norm, cont = spectrum.normalize(spec1)
 
-    np.testing.assert_allclose(norm, np_zeros_like(x))
-    np.testing.assert_allclose(cont, spec.fl)
+    np.testing.assert_allclose(norm, np.zeros_like(x))
+    np.testing.assert_allclose(cont, spec1.fl)
