@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from scipy import ndimage
 from astropy.io import fits
 from astropy import constants
 
@@ -68,3 +69,21 @@ def shuffle_spectrum(spec):
 
     return s
 
+
+def normalize(spec, kernel=101):
+        """
+        Function that normalizes the input spectrum using median filtering
+
+        Parameters
+        ----------
+        flux : ndarray
+            Array of same length as wavelength. Units should be erg/s/Å
+
+        Returns
+        -------
+        normalized_flux : ndarray
+            Normalized flux array
+        """
+        continuum = ndimage.median_filter(spec.fl, size=kernel)
+        normalized_flux = spec.fl - continuum
+        return normalized_flux, continuum
