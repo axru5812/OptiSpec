@@ -23,4 +23,6 @@ setup(
         "Development Status :: 3 - Alpha",
         "Topic :: Utilities",
     ],
+    include_package_data=True,
+    package_data={'': ['data/*.list']},
 )
