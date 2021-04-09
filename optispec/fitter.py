@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
-from scipy import ndimage
-import spectrum as sp
-import utils
+from optispec import spectrum as sp
+from optispec import utils
+import pkg_resources
 
 class Fitter():
     """
@@ -69,28 +69,18 @@ class Fitter():
         """
         pass
 
-    def _read_line_list(self, filename):
-        """
-        """
-        pass
+    def _read_line_list(self):
+        """Return a dataframe about the 68 different Roman Emperors.
 
-    def _normalize(self, kernel=101):
+        Contains the following fields:
+            line            str, name of the spectral line
+            wl              float, restframe vacuum wavelength of the line
         """
-        Function that normalizes the input spectrum using median filtering
+        stream = pkg_resources.resource_stream(__name__, 'data/sdsslines.list')
+        df = pd.read_csv(stream, delim_whitespace=True)
+        return df
 
-        Parameters
-        ----------
-        flux : ndarray
-            Array of same length as wavelength. Units should be erg/s/Å
-
-        Returns
-        -------
-        normalized_flux : ndarray
-            Normalized flux array
-        """
-        continuum = ndimage.median_filter(self.spec.fl, size=kernel)
-        normalized_flux = self.spec.fl - continuum
-        return normalized_flux, continuum
+    
 
     def _gen_linespec(self, x, pars, neblines):
         """ Generates a linespectrum to be used when constructing the fitting
