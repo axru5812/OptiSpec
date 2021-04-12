@@ -76,7 +76,7 @@ class Fitter:
         minimizer = lmfit.Minimizer(
             self._residual, lmpars, fcn_args=(spec, mask)
         )
-        out = minimizer.minimize(method='nelder')
+        out = minimizer.minimize(method='powell')
         self.lmfit_output = out
         self.results = self._params_to_df(out.params)
         return self
