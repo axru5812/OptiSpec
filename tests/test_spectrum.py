@@ -102,7 +102,7 @@ def test_shuffle_spectrum_distribution():
         s = spectrum.shuffle_spectrum(spec1)
         fluxes.append(s.fl.values)
     
-    np.testing.assert_almost_equal(np.mean(fluxes), 10, decimal=2)
+    np.testing.assert_almost_equal(np.mean(fluxes), 10, decimal=1)
     np.testing.assert_almost_equal(np.std(fluxes), 1, decimal=2)
 
 def test_normalize():
@@ -115,5 +115,5 @@ def test_normalize():
 
     norm, cont = spectrum.normalize(spec1)
 
-    np.testing.assert_allclose(norm, np.zeros_like(x))
+    np.testing.assert_allclose(norm.fl, np.zeros_like(x))
     np.testing.assert_allclose(cont, spec1.fl)

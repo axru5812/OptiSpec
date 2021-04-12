@@ -70,20 +70,25 @@ def shuffle_spectrum(spec):
     return s
 
 
-def normalize(spec, kernel=101):
-        """
-        Function that normalizes the input spectrum using median filtering
+def normalize(spec, kernel=201):
+    """
+    Function that normalizes the input spectrum using median filtering
 
-        Parameters
-        ----------
-        flux : ndarray
-            Array of same length as wavelength. Units should be erg/s/Å
+    Parameters
+    ----------
+    spec : DataFrame
+        needs to contain 'fl' column
 
-        Returns
-        -------
-        normalized_flux : ndarray
-            Normalized flux array
-        """
-        continuum = ndimage.median_filter(spec.fl, size=kernel)
-        normalized_flux = spec.fl - continuum
-        return normalized_flux, continuum
+    Returns
+    -------
+    normalized_flux : ndarray
+        Normalized flux array
+    
+    continuum : array
+        subtracted continuum
+    """
+    continuum = ndimage.median_filter(spec.fl, size=kernel)
+    normalized_flux = spec.fl - continuum
+    s = spec.copy()
+    s['fl'] = normalized_flux
+    return s, continuum
