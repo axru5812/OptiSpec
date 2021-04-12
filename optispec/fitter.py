@@ -61,13 +61,16 @@ class Fitter:
 
         # Add the lines
         for name, row in self.lines.iterrows():
-            lmpars.add(
-                name,
-                vary=True,
-                value=initial_ha * row.strength,
-                min=0,
-                max=initial_ha * 30,
-            )
+            min_wl = row.wl * (1 + self.redshift_guess * 0.97)
+            max_wl = row.wl * (1 + self.redshift_guess * 0.97)
+            if (min_wl >= self.spec.wl.min()) & (max_wl <=self.spec.wl.max()):
+                lmpars.add(
+                    name,
+                    vary=True,
+                    value=initial_ha * row.strength,
+                    min=0,
+                    max=initial_ha * 30,
+                )
 
         mask = self._gen_linemask(spec.wl, self.redshift_guess)
 
@@ -79,6 +82,7 @@ class Fitter:
         out = minimizer.minimize(method='powell')
         self.lmfit_output = out
         self.results = self._params_to_df(out.params)
+        self.line_results = self._line_params_to_df(out.params)
         return self
 
     def predict(self, x, include_continuum=True):
@@ -178,11 +182,16 @@ class Fitter:
         reds = pars["redshift"]
         fwhm = pars["fwhm"]
 
-        linespec = np.zeros_like(x)
+        linespec = np.zeros_like(x)        
+
         for i, line in self.lines.iterrows():
-            linespec += utils.add_line(
-                x, line.wl, reds, fwhm, pars[i]
-            )
+            try:
+                linespec += utils.add_line(
+                    x, line.wl, reds, fwhm, pars[i]
+                )
+            except KeyError:
+                # THis line is not included in this particular fit
+                pass
 
         return linespec
 
@@ -205,10 +214,29 @@ class Fitter:
         ha_flux = np.trapz(spec.fl.values[index], spec.wl.values[index])
         return ha_flux
 
+    def _line_params_to_df(self, params):
+        res = []        
+        for line, row in self.lines.iterrows():
+            try:
+                res.append([line, params[line].value, params[line].stderr])
+            except KeyError:
+                res.append([line, np.nan, np.nan])
+            
+        
+        df = pd.DataFrame(res, columns=['name', 'value', 'err'])
+        df.set_index('name', inplace=True)
+        return df
+    
     def _params_to_df(self, params):
         res = []        
-        for par in params:
-            res.append([par, params[par].value, params[par].stderr])
+        for line, row in self.lines.iterrows():
+            try:
+                res.append([line, params[line].value, params[line].stderr])
+            except KeyError:
+                res.append([line, np.nan, np.nan])
+        res.append(['redshift', params['reds'].value, params['reds'].stderr])
+        res.append(['fwhm', params['fwhm'].value, params['fwhm'].stderr])
+            
         
         df = pd.DataFrame(res, columns=['name', 'value', 'err'])
         df.set_index('name', inplace=True)
