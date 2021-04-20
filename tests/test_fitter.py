@@ -1,12 +1,12 @@
 import pandas as pd
 import numpy as np
 from numpy.testing import assert_almost_equal
-from optispec.fitter import Fitter
+from optispec.fitter import SpectrumFitter
 from optispec import utils
 
 
 def test_read_line_list():
-    fitter = Fitter(0.2)
+    fitter = SpectrumFitter(0.2)
 
     df = fitter._read_line_list()
     assert df.wl.values[0] == 6564.61
@@ -31,7 +31,7 @@ def test_fit():
     spec['wl'] = x
     spec['er'] = 0.1 * fl
 
-    fitter = Fitter(redshift * 0.99)
+    fitter = SpectrumFitter(redshift * 0.99)
     fitter.fit(spec)
 
     assert_almost_equal(fitter.results.loc['HI_6563'].value, flux)
