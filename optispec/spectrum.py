@@ -3,6 +3,7 @@ import pandas as pd
 from scipy import ndimage
 from astropy.io import fits
 from astropy import constants
+import pyneb as pn
 
 
 def read_spectrum(filename):
@@ -70,7 +71,7 @@ def shuffle_spectrum(spec):
     return s
 
 
-def normalize(spec, kernel=201):
+def normalize(spec, kernel=151):
     """
     Function that normalizes the input spectrum using median filtering
 
@@ -83,12 +84,39 @@ def normalize(spec, kernel=201):
     -------
     normalized_flux : ndarray
         Normalized flux array
-    
+
     continuum : array
         subtracted continuum
     """
     continuum = ndimage.median_filter(spec.fl, size=kernel)
     normalized_flux = spec.fl - continuum
     s = spec.copy()
-    s['fl'] = normalized_flux
+    s["fl"] = normalized_flux
     return s, continuum
+
+
+def get_dust_correction(fluxes, lines, law="CCM89", intrinsic=2.86):
+    """ Function that calculates the dust correction from measured values of Ha
+    and Hb
+    """
+    ha = fluxes.loc["HI_6563", "value"]
+    hb = fluxes.loc["HI_4861", "value"]
+    rc = pn.RedCorr(law=law)
+    rc.setCorr(
+        (ha / hb) / intrinsic,
+        lines.loc["HI_6563", "wl"],
+        lines.loc["HI_4861", "wl"],
+    )
+    return rc
+
+
+def dustcorrect_lines(fluxes, lines, law="CCM89", intrinsic=2.86):
+    """
+    """
+    dc_fluxes = fluxes.copy()
+    rc = get_dust_correction(fluxes, lines, law=law, intrinsic=intrinsic)
+    for name, data in lines.iterrows():
+        corr = rc.getCorr(data["wl"])
+        dc_fluxes.loc[name, "value"] = corr * dc_fluxes.loc[name, "value"]
+
+    return dc_fluxes, float(rc.E_BV)

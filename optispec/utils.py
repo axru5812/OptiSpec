@@ -4,6 +4,8 @@ import lmfit
 from functools import partial
 from multiprocessing import Pool
 from optispec import spectrum as sp
+from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
 
 
 def gauss(x, sigma, mu):
@@ -39,7 +41,9 @@ def add_line(x, rest_center_wl, redshift, fwhm_kms, flux):
     """
     ckms = constants.c.value / 1e3
     obs_center_wl = rest_center_wl * (1 + redshift)
-    sigma_aa = fwhm_kms / ckms * obs_center_wl / (2.0 * np.sqrt(2.0 * np.log(2)))
+    sigma_aa = (
+        fwhm_kms / ckms * obs_center_wl / (2.0 * np.sqrt(2.0 * np.log(2)))
+    )
     spec = gauss(x, sigma_aa, obs_center_wl) * flux
     return spec
 
@@ -50,7 +54,7 @@ def convolve_to_r(spec, R):
     pass
 
 
-def gen_linemask(spec, lines, redshift_guess, fwhm=1500):
+def gen_linemask(spec, lines, redshift_guess, fwhm=600):
     """ Takes the list of lines and generates a mask array of ones and zeros
     Parameters
     ----------
@@ -73,9 +77,11 @@ def gen_linemask(spec, lines, redshift_guess, fwhm=1500):
     ckms = constants.c.to("km/s").value
     for line in lines.index:
         line_center = lines.loc[line].wl * (1 + redshift_guess)
-        low_edge = line_center - fwhm / ckms * line_center
-        high_edge = line_center + fwhm / ckms * line_center
-        window_indices = (low_edge < spec.wl.values) & (spec.wl.values < high_edge)
+        low_edge = line_center - (fwhm / 2) / ckms * line_center
+        high_edge = line_center + (fwhm / 2) / ckms * line_center
+        window_indices = (low_edge < spec.wl.values) & (
+            spec.wl.values < high_edge
+        )
         mask[window_indices] = 1
     return mask
 
@@ -111,28 +117,33 @@ def gen_linespec(x, pars, lines):
 def gen_initial_guess(redshift_guess, lines, spec):
     de_redshift = sp.spec_to_restframe(spec, redshift_guess)
     # Select Ha line and make a simple integration measurement of it
-    window_size = 40  ##Å
+    window_size = 10  ##Å
     ref_line = "HI_6563"
-    index = (spec.wl > (lines.loc[ref_line].wl - window_size / 2)) & (
-        spec.wl < (lines.loc[ref_line].wl + window_size / 2)
+    index = (
+        de_redshift.wl.values > (lines.loc[ref_line].wl - window_size / 2)
+    ) & (de_redshift.wl.values < (lines.loc[ref_line].wl + window_size / 2))
+    ha_flux = np.trapz(
+        de_redshift.fl.values[index], x=de_redshift.wl.values[index]
     )
-    ha_flux = np.trapz(spec.fl.values[index], spec.wl.values[index])
     return ha_flux
 
 
 def residual(pars, spec, mask, lines):
     """ Calculates the residual between the actual flux and the model
     """
-    model = gen_linespec(spec.wl, pars, lines)
-    regions_of_interest = np.where(mask == 1)
+    model = gen_linespec(spec.wl.values, pars, lines)
+    regions = np.where(mask == 1)
 
-    return spec.fl.values[regions_of_interest] - model.values[regions_of_interest]
+    return spec.fl.values[regions] - model[regions]
 
 
-def setup_parameters(redshift_guess, fwhm_guess, lines, spec):
+def setup_parameters(redshift_guess, fwhm_guess, lines, spec, init_guess=None):
     """
     """
-    initial_ha = gen_initial_guess(redshift_guess, lines, spec)
+    if init_guess is None:
+        initial_ha = gen_initial_guess(redshift_guess, lines, spec)
+    else:
+        initial_ha = init_guess
 
     lmpars = lmfit.Parameters()
     # add redshift; tolerate 3% change
@@ -144,12 +155,12 @@ def setup_parameters(redshift_guess, fwhm_guess, lines, spec):
         max=redshift_guess * 1.03,
     )
     # add FWHM; toleratre min=spec.res; max = 500 km/s
-    lmpars.add("fwhm", vary=True, value=fwhm_guess, min=50)
+    lmpars.add("fwhm", vary=True, value=fwhm_guess, min=50, max=2000)
 
     # Add the lines
     for name, row in lines.iterrows():
         min_wl = row.wl * (1 + redshift_guess * 0.97)
-        max_wl = row.wl * (1 + redshift_guess * 0.97)
+        max_wl = row.wl * (1 + redshift_guess * 1.03)
         if (min_wl >= spec.wl.min()) & (max_wl <= spec.wl.max()):
             lmpars.add(
                 name,
@@ -165,12 +176,21 @@ def setup_parameters(redshift_guess, fwhm_guess, lines, spec):
 def fit_spectrum(spec, lmpars, mask, lines, method):
     """
     """
+    spec = remove_nonfinite(spec)
     minimizer = lmfit.Minimizer(residual, lmpars, fcn_args=(spec, mask, lines))
     out = minimizer.minimize(method=method)
     return out
 
+
 def monte_carlo_fitting(
-    spec, niterations, nworkers,  lmpars, mask, lines, method
+    spec,
+    niterations,
+    nworkers,
+    lmpars,
+    mask,
+    lines,
+    method,
+    disable_prog_bar=False,
 ):
     """
     """
@@ -187,5 +207,13 @@ def monte_carlo_fitting(
             ),
             spectra,
         )
+
     return results
 
+
+def remove_nonfinite(spec):
+    s = spec.copy()
+    s["fl"] = np.where(np.isfinite(s["fl"]), s["fl"], 0)
+    s["er"] = np.where(np.isfinite(s["er"]), s["er"], 1e10)
+
+    return s

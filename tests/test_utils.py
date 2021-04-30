@@ -1,5 +1,7 @@
 from optispec import utils
 import numpy as np
+import pandas as pd
+from optispec import fitter
 
 def test_gauss_location():
     x = np.arange(100)
@@ -64,3 +66,23 @@ def test_add_line_location():
     spec = utils.add_line(x, rest_center_wl, redshift, fwhm_kms, flux)
 
     np.testing.assert_almost_equal(x[np.argmax(spec)], rest_center_wl)
+
+def test_gen_initial_guess():
+    spec= pd.DataFrame()
+    redshift = 0.1
+    wl = np.arange(6000, 7000, 0.5) 
+    
+    rest_center_wl = 6563 
+    fwhm_kms = 100
+    flux = 100
+
+    fl = utils.add_line(wl, rest_center_wl, redshift, fwhm_kms, flux)
+
+    spec['wl'] = wl * (1+redshift)
+    spec['fl'] = fl
+    spec['er'] = np.zeros_like(fl)
+
+    fit = fitter.SpectrumFitter(redshift_guess=.1)
+
+    init_guess = utils.gen_initial_guess(redshift, fit.lines, spec)
+    np.testing.assert_almost_equal(init_guess, np.trapz(fl, x=wl))
