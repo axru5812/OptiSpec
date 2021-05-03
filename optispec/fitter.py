@@ -31,6 +31,7 @@ class SpectrumFitter:
         mc_iterations=None,
         mc_workers=4,
         fwhm_guess=200,
+        instrument='sdss',
         method="leastsq",
         dust_law="CCM89",
     ):
@@ -40,6 +41,7 @@ class SpectrumFitter:
         self.mc_workers = mc_workers
         self.lines = self._read_line_list()
         self.fwhm_guess = fwhm_guess
+        self.instrument=instrument
         self.method = method
         self.dust_law = dust_law
 
@@ -56,6 +58,7 @@ class SpectrumFitter:
         self.norm = norm
         self.continuum = cont
 
+        self.R_instrument= utils.fit_resolvingpower(self.instrument)
         mask = utils.gen_linemask(self.norm, self.lines, self.redshift_guess)
 
         lmpars = utils.setup_parameters(
@@ -64,16 +67,21 @@ class SpectrumFitter:
         # print('init guesses')
         # print(lmpars)
         # Do the fitting
-        out = utils.fit_spectrum(
-            self.norm, lmpars, mask, self.lines, self.method
-        )
+        out = utils.fit_spectrum(self.norm, lmpars, mask, self.lines, self.R_instrument, self.method)
         self.lmfit_output = out
         self.results = self._params_to_df(out.params)
         # same but dust corrected
         self.dust_corrected_results, self.EBV = sp.dustcorrect_lines(
             self.results, self.lines, law=self.dust_law
         )
-        self.line_results = self._line_params_to_df(out.params)
+        self.EWs = sp.calculate_equivalent_widths(
+            self.dust_corrected_results,
+            self.lines,
+            self.spec["wl"].values,
+            self.continuum,
+            self.results.loc["redshift", "value"],
+            self.results.loc["fwhm", "value"],
+        )
 
         if self.mc_iterations is not None:
             mc_res = utils.monte_carlo_fitting(
@@ -83,15 +91,24 @@ class SpectrumFitter:
                 lmpars,
                 mask,
                 self.lines,
+                self.R_instrument,
                 self.method,
             )
-            self.mc_posteriors, self.mc_summary, self.dust_mc_posteriors, self.dust_mc_summary = self._aggregate_mc_results(
-                mc_res
-            )
+            (
+                self.mc_posteriors,
+                self.mc_summary,
+                self.dust_mc_posteriors,
+                self.dust_mc_summary,
+                self.ew_mc_posteriors,
+                self.ew_mc_summary
+            ) = self._aggregate_mc_results(mc_res)
 
             self.results = self._replace_errors(self.results, self.mc_summary)
             self.dust_corrected_results = self._replace_errors(
                 self.dust_corrected_results, self.dust_mc_summary
+            )
+            self.EWs = self._replace_errors(
+                self.EWs, self.ew_mc_summary
             )
 
             self.dust_corrected_results.loc["EBV", "value"] = self.EBV
@@ -107,10 +124,19 @@ class SpectrumFitter:
         """
         resdict = {}
         dc_resdict = {}
+        ew_resdict = {}
         for i, lmfitoutput in enumerate(results):
             paramset = self._params_to_df(lmfitoutput.params)
             dc_paramset, EBV = sp.dustcorrect_lines(
                 paramset, self.lines, law=self.dust_law
+            )
+            ews = sp.calculate_equivalent_widths(
+                paramset,
+                self.lines,
+                self.spec.wl,
+                self.continuum,
+                paramset.loc["redshift", "value"],
+                paramset.loc["fwhm", "value"],
             )
             if i == 0:
                 dc_resdict["EBV"] = [EBV]
@@ -121,17 +147,23 @@ class SpectrumFitter:
                 if i == 0:
                     resdict[param] = [paramset.loc[param, "value"]]
                     dc_resdict[param] = [dc_paramset.loc[param, "value"]]
+                    ew_resdict[param] = [ews.loc[param, "value"]]
                 else:
                     resdict[param].append(paramset.loc[param, "value"])
                     dc_resdict[param].append(dc_paramset.loc[param, "value"])
+                    ew_resdict[param].append(ews.loc[param, "value"])
+
 
         summary = {}
         dc_summary = {}
+        ew_summary = {}
         for key in resdict.keys():
             summary[key] = np.std(np.array(resdict[key]))
         for key in dc_resdict.keys():
             dc_summary[key] = np.std(np.array(dc_resdict[key]))
-        return resdict, summary, dc_resdict, dc_summary
+        for key in ew_resdict.keys():
+            ew_summary[key] = np.std(np.array(ew_resdict[key]))
+        return resdict, summary, dc_resdict, dc_summary, ew_resdict, ew_summary
 
     def predict(self, x, include_continuum=True):
         """
@@ -188,9 +220,7 @@ class SpectrumFitter:
                 res.append([line, params[line].value, params[line].stderr])
             except KeyError:
                 res.append([line, np.nan, np.nan])
-        res.append(
-            ["redshift", params["redshift"].value, params["redshift"].stderr]
-        )
+        res.append(["redshift", params["redshift"].value, params["redshift"].stderr])
         res.append(["fwhm", params["fwhm"].value, params["fwhm"].stderr])
 
         df = pd.DataFrame(res, columns=["name", "value", "err"])

@@ -103,9 +103,7 @@ def get_dust_correction(fluxes, lines, law="CCM89", intrinsic=2.86):
     hb = fluxes.loc["HI_4861", "value"]
     rc = pn.RedCorr(law=law)
     rc.setCorr(
-        (ha / hb) / intrinsic,
-        lines.loc["HI_6563", "wl"],
-        lines.loc["HI_4861", "wl"],
+        (ha / hb) / intrinsic, lines.loc["HI_6563", "wl"], lines.loc["HI_4861", "wl"],
     )
     return rc
 
@@ -120,3 +118,35 @@ def dustcorrect_lines(fluxes, lines, law="CCM89", intrinsic=2.86):
         dc_fluxes.loc[name, "value"] = corr * dc_fluxes.loc[name, "value"]
 
     return dc_fluxes, float(rc.E_BV)
+
+
+def calculate_equivalent_widths(fluxes, lines, wl, continuum, redshift, fwhm):
+    """ Calculates equivalent widths of emission lines given fluxes,
+    line parameters and continuum
+
+    Parameters
+    ----------
+    fluxes : pd.DataFrame
+        dataframe of measured line fluxes
+    lines : pd.DataFrame
+        dataframe with index that is line name and columns wl for wavelength
+    wl : array
+        observer frame wavelength array
+    redshift : float
+        Redshift of galaxy
+    fwhm : float
+        assumed or fitted FWHM for the lines used to define the window over
+        which the continuum is estimated
+    """
+    ews = fluxes.copy()
+    rwl = wl / (1 + redshift)
+    ckms = constants.c.value / 1000
+    for name, data in lines.iterrows():
+        window = np.where(
+            (rwl > (data.wl - ((fwhm) / ckms) * data.wl))
+            & (rwl < (data.wl + ((fwhm) / ckms) * data.wl))
+        )
+        cont = np.mean(continuum[window])
+        ews.loc[name, "value"] = fluxes.loc[name, "value"] / cont
+    return ews
+
