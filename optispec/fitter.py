@@ -31,19 +31,24 @@ class SpectrumFitter:
         mc_iterations=None,
         mc_workers=4,
         fwhm_guess=200,
-        instrument='sdss',
+        instrument="sdss",
         method="leastsq",
         dust_law="CCM89",
+        MW_EBV=None,
     ):
         self.redshift_guess = redshift_guess
         self.fit_redshift = fit_redshift
         self.mc_iterations = mc_iterations
         self.mc_workers = mc_workers
-        self.lines = self._read_line_list()
+
+        if instrument.lower() not in ["sdss", "muse"]:
+            raise ValueError("Instrument not supported")
+        self.instrument = instrument.lower()
+        self.lines = self._read_line_list(instrument.lower())
         self.fwhm_guess = fwhm_guess
-        self.instrument=instrument
         self.method = method
         self.dust_law = dust_law
+        self.MW_EBV = MW_EBV
 
     def fit(self, spec):
         """
@@ -58,7 +63,7 @@ class SpectrumFitter:
         self.norm = norm
         self.continuum = cont
 
-        self.R_instrument= utils.fit_resolvingpower(self.instrument)
+        self.R_instrument = utils.fit_resolvingpower(self.instrument)
         mask = utils.gen_linemask(self.norm, self.lines, self.redshift_guess)
 
         lmpars = utils.setup_parameters(
@@ -67,11 +72,20 @@ class SpectrumFitter:
         # print('init guesses')
         # print(lmpars)
         # Do the fitting
-        out = utils.fit_spectrum(self.norm, lmpars, mask, self.lines, self.R_instrument, self.method)
-        self.lmfit_output = out
-        self.results = self._params_to_df(out.params)
+        out = utils.fit_spectrum(
+            self.norm, lmpars, mask, self.lines, self.R_instrument, self.method
+        )
+        self.lmfit_output = out["lmfit"]
+        self.results = self._params_to_df(self.lmfit_output.params)
+
+        # Correct for foreground extinction if available
+        if self.MW_EBV is not None:
+            self.results = sp.correct_for_foreground_dust(
+                self.results, self.lines, self.MW_EBV, law=self.dust_law
+            )
+
         # same but dust corrected
-        self.dust_corrected_results, self.EBV = sp.dustcorrect_lines(
+        self.dust_corrected_results, self.EBV = sp.correct_for_internal_dust(
             self.results, self.lines, law=self.dust_law
         )
         self.EWs = sp.calculate_equivalent_widths(
@@ -85,7 +99,7 @@ class SpectrumFitter:
 
         if self.mc_iterations is not None:
             mc_res = utils.monte_carlo_fitting(
-                self.norm,
+                self.spec,
                 self.mc_iterations,
                 self.mc_workers,
                 lmpars,
@@ -100,16 +114,14 @@ class SpectrumFitter:
                 self.dust_mc_posteriors,
                 self.dust_mc_summary,
                 self.ew_mc_posteriors,
-                self.ew_mc_summary
+                self.ew_mc_summary,
             ) = self._aggregate_mc_results(mc_res)
 
             self.results = self._replace_errors(self.results, self.mc_summary)
             self.dust_corrected_results = self._replace_errors(
                 self.dust_corrected_results, self.dust_mc_summary
             )
-            self.EWs = self._replace_errors(
-                self.EWs, self.ew_mc_summary
-            )
+            self.EWs = self._replace_errors(self.EWs, self.ew_mc_summary)
 
             self.dust_corrected_results.loc["EBV", "value"] = self.EBV
         return self
@@ -125,16 +137,16 @@ class SpectrumFitter:
         resdict = {}
         dc_resdict = {}
         ew_resdict = {}
-        for i, lmfitoutput in enumerate(results):
-            paramset = self._params_to_df(lmfitoutput.params)
-            dc_paramset, EBV = sp.dustcorrect_lines(
+        for i, output in enumerate(results):
+            paramset = self._params_to_df(output["lmfit"].params)
+            dc_paramset, EBV = sp.correct_for_internal_dust(
                 paramset, self.lines, law=self.dust_law
             )
             ews = sp.calculate_equivalent_widths(
                 paramset,
                 self.lines,
                 self.spec.wl,
-                self.continuum,
+                output["cont"],
                 paramset.loc["redshift", "value"],
                 paramset.loc["fwhm", "value"],
             )
@@ -152,7 +164,6 @@ class SpectrumFitter:
                     resdict[param].append(paramset.loc[param, "value"])
                     dc_resdict[param].append(dc_paramset.loc[param, "value"])
                     ew_resdict[param].append(ews.loc[param, "value"])
-
 
         summary = {}
         dc_summary = {}
@@ -172,7 +183,9 @@ class SpectrumFitter:
         spectrum : pd.DataFrame
         """
         if self.lmfit_output is not None:
-            fl = utils.gen_linespec(x, self.lmfit_output.params, self.lines)
+            fl = utils.gen_linespec(
+                x, self.lmfit_output.params, self.lines, self.R_instrument
+            )
             if include_continuum:
                 return fl + self.continuum
             else:
@@ -180,12 +193,7 @@ class SpectrumFitter:
         else:
             raise ValueError("Fit not run")
 
-    def evaluate(self):
-        """ Returns a series of fit evaluation metrics
-        """
-        pass
-
-    def _read_line_list(self):
+    def _read_line_list(self, instrument):
         """Return a dataframe with data about the nebular lines
 
         Contains the following fields:
@@ -196,9 +204,13 @@ class SpectrumFitter:
             str : float
                 initial guess strength relative to Halpha
         """
-        stream = pkg_resources.resource_stream(__name__, "data/sdsslines.list")
+        stream = pkg_resources.resource_stream(__name__, "data/neblines.dat")
         df = pd.read_csv(stream, delim_whitespace=True, comment="#")
         df.set_index("line", inplace=True)
+
+        if instrument == "muse":
+            df = df.drop("wl", axis=1)
+            df = df.rename(columns={"wl_air": "wl"})
         return df
 
     def _line_params_to_df(self, params):

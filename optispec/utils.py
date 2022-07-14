@@ -3,6 +3,8 @@ from astropy import constants
 import lmfit
 from functools import partial
 from multiprocessing import Pool
+
+from numpy.lib import utils
 from optispec import spectrum as sp
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
@@ -165,9 +167,9 @@ def residual(pars, spec, mask, lines, R_instrument=None):
     """ Calculates the residual between the actual flux and the model
     """
     model = gen_linespec(spec.wl.values, pars, lines, R_instrument)
-    regions = np.where(mask == 1)
+    regions = mask == 1
 
-    return spec.fl.values[regions] - model[regions]
+    return (spec.fl.values[regions] - model[regions]) / spec.er[regions]
 
 
 def setup_parameters(redshift_guess, fwhm_guess, lines, spec, init_guess=None):
@@ -188,19 +190,19 @@ def setup_parameters(redshift_guess, fwhm_guess, lines, spec, init_guess=None):
         max=redshift_guess * 1.03,
     )
     # add FWHM; toleratre min=spec.res; max = 500 km/s
-    lmpars.add("fwhm", vary=True, value=fwhm_guess, min=50, max=2000)
+    lmpars.add("fwhm", vary=True, value=fwhm_guess, min=50, max=500)
 
     # Add the lines
     for name, row in lines.iterrows():
-        min_wl = row.wl * (1 + redshift_guess * 0.97)
-        max_wl = row.wl * (1 + redshift_guess * 1.03)
+        min_wl = row.wl * (1 + redshift_guess * 0.98)
+        max_wl = row.wl * (1 + redshift_guess * 1.02)
         if (min_wl >= spec.wl.min()) & (max_wl <= spec.wl.max()):
             lmpars.add(
                 name,
                 vary=True,
                 value=initial_ha * row.strength,
                 min=0,
-                max=initial_ha * 30,
+                max=initial_ha * 3,
             )
 
     return lmpars
@@ -209,10 +211,12 @@ def setup_parameters(redshift_guess, fwhm_guess, lines, spec, init_guess=None):
 def fit_spectrum(spec, lmpars, mask, lines, R_instrument, method):
     """
     """
-    spec = remove_nonfinite(spec)
-    minimizer = lmfit.Minimizer(residual, lmpars, fcn_args=(spec, mask, lines, R_instrument))
+    s, cont = sp.normalize(spec)
+    s = remove_nonfinite(s)
+    minimizer = lmfit.Minimizer(residual, lmpars, fcn_args=(s, mask, lines, R_instrument))
     out = minimizer.minimize(method=method)
-    return out
+    res = {'lmfit': out, 'cont': cont}
+    return res
 
 
 def monte_carlo_fitting(

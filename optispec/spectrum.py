@@ -108,7 +108,19 @@ def get_dust_correction(fluxes, lines, law="CCM89", intrinsic=2.86):
     return rc
 
 
-def dustcorrect_lines(fluxes, lines, law="CCM89", intrinsic=2.86):
+def correct_for_foreground_dust(fluxes, lines, MW_EBV, law="CCM89"):
+    """ Simple Function for correcting for foreground dust extinction from the MW
+    """
+    rc = pn.RedCorr(law=law)
+    rc._set_e_bv(MW_EBV)
+    dc_fluxes = fluxes.copy()
+    for name, data in lines.iterrows():
+        corr = rc.getCorr(data["wl"])
+        dc_fluxes.loc[name, "value"] = corr * dc_fluxes.loc[name, "value"]
+    return dc_fluxes
+
+
+def correct_for_internal_dust(fluxes, lines, law="CCM89", intrinsic=2.86):
     """
     """
     dc_fluxes = fluxes.copy()
